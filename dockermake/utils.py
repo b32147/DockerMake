@@ -199,7 +199,7 @@ def push(client, name):
 def _linestream(textstream):
     for item in textstream:
         for line in item.splitlines():
-            yield yaml.load(line)
+            yield yaml.load(line,  Loader=yaml.FullLoader)
 
 
 def human_readable_size(num, suffix='B'):

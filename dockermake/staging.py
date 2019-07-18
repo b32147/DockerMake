@@ -49,10 +49,11 @@ class StagedFile(object):
         destpath (str): path in the target image
         cache_from (str or list): use this(these) image(s) to resolve build cache
     """
-    def __init__(self, sourceimage, sourcepath, destpath, cache_from=None):
+    def __init__(self, sourceimage, sourcepath, destpath, buildargs=None, cache_from=None):
         self.sourceimage = sourceimage
         self.sourcepath = sourcepath
         self.destpath = destpath
+        self.buildargs = buildargs if buildargs else {}
         self._sourceobj = None
         self._cachedir = None
         self.cache_from = cache_from
@@ -104,6 +105,7 @@ class StagedFile(object):
 
         buildargs = dict(path=cachedir,
                          tag=newimage,
+                         buildargs=self.buildargs,
                          decode=True)
         utils.set_build_cachefrom(self.cache_from, buildargs, client)
 
