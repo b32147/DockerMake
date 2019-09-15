@@ -295,14 +295,16 @@ class BuildStep(object):
                           'echo "ERROR: Secret file $file already exists."; exit 1; '
                           'fi; done;') % (' '.join(self.secret_files))
                          )
-        try:
-            # Get run command and preprocess any Jinja directives if necessary
-            template = jinja2.Template(self.img_def.get('build', ''))
-            content = template.render(self.buildargs)
-            lines.append(content)
-        except Exception as e:
-            raise errors.BuildError('Could not process build statements: %s', e)
-
+        if self.buildargs:
+            try:
+                # Get run command and preprocess any Jinja directives if necessary
+                template = jinja2.Template(self.img_def.get('build', ''))
+                content = template.render(self.buildargs)
+                lines.append(content)
+            except Exception as e:
+                raise errors.BuildError('Could not process build statements: %s', e)
+        else:
+            lines.append(self.img_def.get('build', ''))
         if self.secret_files:
             lines.append('RUN rm -rf %s' % (' '.join(self.secret_files)))
         return lines
