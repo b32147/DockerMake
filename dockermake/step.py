@@ -19,6 +19,7 @@ import sys
 
 from termcolor import cprint, colored
 import docker.utils, docker.errors
+import jinja2
 
 from . import utils
 from . import staging
@@ -294,7 +295,13 @@ class BuildStep(object):
                           'echo "ERROR: Secret file $file already exists."; exit 1; '
                           'fi; done;') % (' '.join(self.secret_files))
                          )
-        lines.append(self.img_def.get('build', ''))
+        try:
+            # Get run command and preprocess any Jinja directives
+            template = jinja2.Template(self.img_def.get('build', ''))
+            content = template.render(self.buildargs if self.buildargs else {})
+            lines.append(content)
+        except Exception as e:
+            raise errors.BuildError('Could not process build statements: %s', e)
         if self.secret_files:
             lines.append('RUN rm -rf %s' % (' '.join(self.secret_files)))
         return lines
@@ -328,7 +335,7 @@ class FileCopyStep(BuildStep):
             hey were applied when BUILDING self.sourceimage
         """
         stage = staging.StagedFile(self.sourceimage, self.sourcepath, self.destpath,
-                                   cache_from=self.cache_from)
+                                   buildargs=self.buildargs, cache_from=self.cache_from)
         stage.stage(self.baseimage, self.buildname)
 
     @property

@@ -20,6 +20,7 @@ import os
 from collections import OrderedDict
 import yaml
 import uuid
+import jinja2
 from future.utils import iteritems
 
 import dockermake.step
@@ -62,7 +63,7 @@ class ImageDefs(object):
             raise errors.CircularSourcesError('Circular _SOURCES_ in %s' % self.makefile_path)
         self._sources.add(fname)
         with open(fname, 'r') as yaml_file:
-            yamldefs = yaml.load(yaml_file)
+            yamldefs = yaml.load(yaml_file, Loader=yaml.FullLoader)
         self._check_yaml_and_paths(filename, yamldefs)
 
         # Recursively read all steps in included files from the _SOURCES_ field and
@@ -152,7 +153,7 @@ class ImageDefs(object):
             buildargs (dict): build-time dockerfile arugments
             **kwargs (dict): extra keyword arguments for the BuildTarget object
         """
-        from_image = self.get_external_base_image(image)
+        from_image = self.get_external_base_image(image, buildargs=buildargs)
         if cache_repo or cache_tag:
             cache_from = utils.generate_name(image, cache_repo, cache_tag)
         else:
@@ -210,6 +211,7 @@ class ImageDefs(object):
                                             img,
                                             cache_repo=cache_repo,
                                             cache_tag=cache_tag,
+                                            buildargs=buildargs,
                                             **kwargs)
                         for img in sourceimages]
 
@@ -249,7 +251,7 @@ class ImageDefs(object):
         dependencies[image] = None
         return dependencies.keys()
 
-    def get_external_base_image(self, image, stack=None):
+    def get_external_base_image(self, image, stack=None, buildargs=None):
         """ Makes sure that this image has exactly one unique external base image
         """
         if stack is None:
@@ -268,7 +270,11 @@ class ImageDefs(object):
                     'ERROR: Image "%s" has both a "FROM" and a "FROM_DOCKERFILE" field.' % image +
                     '       It should have at most ONE of these fields.')
         if 'FROM' in mydef:
-            externalbase = mydef['FROM']
+            try:
+                template = jinja2.Template(mydef['FROM'])
+                externalbase = template.render(buildargs if buildargs else {})
+            except Exception:
+                raise errors.BuildError('FROM statement "%s" is invalid' % mydef.get('FROM'))
         elif 'FROM_DOCKERFILE' in mydef:
             path = mydef['FROM_DOCKERFILE']
             if path not in self._external_dockerfiles:
@@ -283,7 +289,7 @@ class ImageDefs(object):
 
         for base in requires:
             try:
-                otherexternal = self.get_external_base_image(base, stack)
+                otherexternal = self.get_external_base_image(base, stack, buildargs=buildargs)
             except ValueError:
                 continue
 

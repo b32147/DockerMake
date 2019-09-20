@@ -19,8 +19,5 @@ setup(
                       'docker-make = dockermake.__main__:main'
                   ]
         },
-        install_requires=['termcolor',
-                          'docker>=3.2',
-                          'future',
-                          'pyyaml'],
+        install_requires=requirements,
 )
