@@ -115,6 +115,7 @@ Image definitions can include any of the following fields:
 * [**`copy_from`**](#copy_from)
 * [**`squash`**](#squash)
 * [**`secret_files`**](#secret_files)
+* [**`build_args`**](#build_args)
 
 #### **`FROM`/`FROM_DOCKERFILE`**
 The docker image to use as a base for this image (and those that require it). This can be either the name of an image (using `FROM`) or the path to a local Dockerfile (using `FROM_DOCKERFILE`).
@@ -285,6 +286,30 @@ my-secret-steps:
     secret_files:
         - /opt/credentials
 ```
+
+
+#### **`build_args`**
+A dictionary of key-value pairs to enable for subsequent build stages for this target. Available as both arguments for
+Jinja-templated steps, as well as Dockerfile ARGs. Priority is given to build arguments passed by command, then to
+`build_args` on the target definition, and least priority to `build_args` on the build/copy definition themselves.
+
+*Example:*
+```yaml
+data-image:
+    FROM: scratch
+    requires: build-image
+    build_args:
+      KEY: value
+      ANOTHER: argument
+
+build-image:
+    build_args:
+      SOME: value
+      KEY: overwritten_by_data-image_KEY
+    build: |
+    [...]
+```
+
 
 ### Special fields
 
