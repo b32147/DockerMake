@@ -30,7 +30,7 @@ from . import errors
 from . import utils
 
 RECOGNIZED_KEYS = set(('requires build_directory build copy_from FROM description _sourcefile'
-                       ' FROM_DOCKERFILE ignore ignorefile squash secret_files')
+                       ' FROM_DOCKERFILE ignore ignorefile squash secret_files build_args')
                       .split())
 SPECIAL_FIELDS = set('_ALL_ _SOURCES_'.split())
 
@@ -153,6 +153,9 @@ class ImageDefs(object):
             buildargs (dict): build-time dockerfile arugments
             **kwargs (dict): extra keyword arguments for the BuildTarget object
         """
+        # Fill out build args
+        buildargs = self.get_target_args(image, buildargs)
+
         from_image = self.get_external_base_image(image, buildargs=buildargs)
         if cache_repo or cache_tag:
             cache_from = utils.generate_name(image, cache_repo, cache_tag)
@@ -187,7 +190,7 @@ class ImageDefs(object):
                             buildname,
                             bust_cache=base_name in rebuilds,
                             build_first=build_first, cache_from=cache_from,
-                            buildargs=buildargs,
+                            buildargs=self.get_target_args(base_name, buildargs),
                             squash=squash,
                             secret_files=secret_files))
 
@@ -211,7 +214,7 @@ class ImageDefs(object):
                                             img,
                                             cache_repo=cache_repo,
                                             cache_tag=cache_tag,
-                                            buildargs=buildargs,
+                                            buildargs=self.get_target_args(img, buildargs),
                                             **kwargs)
                         for img in sourceimages]
 
@@ -250,6 +253,22 @@ class ImageDefs(object):
 
         dependencies[image] = None
         return dependencies.keys()
+
+    def get_target_args(self, image, buildargs):
+        """ Collects any args specified in the target definition and prepares them
+            for passing along to the required build steps
+        """
+        # Check for any
+        target_args = self.ymldefs[image].get('build_args', {})
+
+        # Force strings
+        for key, value in target_args.items():
+            target_args[key] = str(value)
+
+        # Make sure we prioritize buildargs from CLI
+        target_args.update(buildargs)
+
+        return target_args
 
     def get_external_base_image(self, image, stack=None, buildargs=None):
         """ Makes sure that this image has exactly one unique external base image
