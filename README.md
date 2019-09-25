@@ -311,6 +311,21 @@ build-image:
 ```
 
 
+#### **`aliases`**
+A list of image aliases to push. Follows the same format applied to the called target, but pushed with each alias to
+the same repo.
+
+*Example:*
+```yaml
+data-image:
+    FROM: some-image
+    aliases: 
+      - data-image-alias
+      - data-image-alias2
+    requires: build-image
+```
+
+
 ### Special fields
 
 #### `_SOURCES_`
