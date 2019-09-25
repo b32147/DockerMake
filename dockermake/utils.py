@@ -159,12 +159,17 @@ def build_targets(args, defs, targets):
 
         built.append(b.targetname)
         if args.push_to_registry and not args.no_build:
-            success, w = push(client, b.targetname)
-            warnings.extend(w)
-            if not success:
-                built[-1] += " -- PUSH FAILED"
-            else:
-                built[-1] += " -- pushed to %s" % b.targetname.split("/")[0]
+            # Build list of tags to push
+            tags = [b.targetname]
+            if b.aliases:
+                tags.extend(b.aliases)
+            for tag in tags:
+                success, w = push(client, tag)
+                warnings.extend(w)
+                if not success:
+                    built[-1] += " -- PUSH FAILED"
+                else:
+                    built[-1] += " -- pushed to %s" % tag.split('/')[0]
 
     return built, warnings
 

@@ -30,7 +30,7 @@ from . import errors
 from . import utils
 
 RECOGNIZED_KEYS = set(('requires build_directory build copy_from FROM description _sourcefile'
-                       ' FROM_DOCKERFILE ignore ignorefile squash secret_files build_args')
+                       ' FROM_DOCKERFILE ignore ignorefile squash secret_files build_args aliases')
                       .split())
 SPECIAL_FIELDS = set('_ALL_ _SOURCES_'.split())
 
@@ -181,7 +181,6 @@ class ImageDefs(object):
         build_uuid = str(uuid.uuid4())
         # Fill out build args
         buildargs = self.get_target_args(image, buildargs)
-
         from_image = self.get_external_base_image(image, buildargs=buildargs)
         if cache_repo or cache_tag:
             cache_from = utils.generate_name(image, cache_repo, cache_tag)
@@ -260,6 +259,7 @@ class ImageDefs(object):
                                   steps=build_steps,
                                   sourcebuilds=sourcebuilds,
                                   from_image=from_image,
+                                  aliases=self.get_aliases(image, targetname),
                                   **kwargs)
 
     def _generate_stepname(self, istep, image, build_uuid):
@@ -296,7 +296,7 @@ class ImageDefs(object):
         dependencies[image] = None
         return dependencies.keys()
 
-    def get_target_args(self, image, buildargs):
+    def get_target_args(self, image, buildargs=None):
         """ Collects any args specified in the target definition and prepares them
             for passing along to the required build steps
         """
@@ -308,9 +308,23 @@ class ImageDefs(object):
             target_args[key] = str(value)
 
         # Make sure we prioritize buildargs from CLI
-        target_args.update(buildargs)
+        if buildargs:
+            target_args.update(buildargs)
 
         return target_args
+
+    def get_aliases(self, image, targetname):
+        """ Checks for and sets an configured aliases for the target
+        """
+        # Check for any
+        aliases = self.ymldefs[image].get('aliases', None)
+        if not aliases:
+            return None
+
+        # Make aliases fully formed
+        target_aliases = [targetname.replace(image, a) for a in aliases]
+
+        return target_aliases
 
     def get_external_base_image(self, image, stack=None, buildargs=None):
         """ Makes sure that this image has exactly one unique external base image

@@ -37,23 +37,16 @@ class BuildTarget(object):
         stagedfiles (List[StagedFile]): list of files to stage into this image from other images
         from_image (str): External base image name
         keepbuildtags (bool): Keep intermediate build tags (dmkbuild_[target]_[stepnum]_[uuid])
+        aliases (List[str]): Additional tags for this target
     """
-
-    def __init__(
-        self,
-        imagename,
-        targetname,
-        steps,
-        sourcebuilds,
-        from_image,
-        keepbuildtags=False,
-    ):
+    def __init__(self, imagename, targetname, steps, sourcebuilds, from_image, keepbuildtags=False, aliases=None):
         self.imagename = imagename
         self.steps = steps
         self.sourcebuilds = sourcebuilds
         self.targetname = targetname
         self.from_image = from_image
         self.keepbuildtags = keepbuildtags
+        self.aliases = aliases
 
     def write_dockerfile(self, output_dir):
         """ Used only to write a Dockerfile that will NOT be built by docker-make
@@ -152,8 +145,15 @@ class BuildTarget(object):
     def finalizenames(self, client, finalimage):
         """ Tag the built image with its final name and untag intermediate containers
         """
-        client.api.tag(finalimage, *self.targetname.split(":"))
-        cprint('Tagged final image as "%s"' % self.targetname, "green")
+        client.api.tag(finalimage, *self.targetname.split(':'))
+        if self.aliases:
+            for alias in self.aliases:
+                client.api.tag(finalimage, *alias.split(':'))
+            cprint('Tagged final image as "%s"' % '", "'.join(self.aliases + [self.targetname]),
+                   'green')
+        else:
+            cprint('Tagged final image as "%s"' % self.targetname,
+                   'green')
         if not self.keepbuildtags:
             print("Untagging intermediate containers:", end="")
             for step in self.steps:
