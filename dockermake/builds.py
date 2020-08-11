@@ -21,7 +21,9 @@ from dockermake.step import FileCopyStep
 from . import utils
 
 
-_updated_staging_images = set()  # stored per session so that we don't try to update them repeatedly
+_updated_staging_images = (
+    set()
+)  # stored per session so that we don't try to update them repeatedly
 _rebuilt = set()  # only rebuild a unique stack of images ONCE per session
 
 
@@ -34,15 +36,17 @@ class BuildTarget(object):
         steps (List[BuildStep]): list of steps required to build this image
         stagedfiles (List[StagedFile]): list of files to stage into this image from other images
         from_image (str): External base image name
-        keepbuildtags (bool): Keep intermediate build tags (dmkbuild_[target]_[stepnum])
+        keepbuildtags (bool): Keep intermediate build tags (dmkbuild_[target]_[stepnum]_[uuid])
+        aliases (List[str]): Additional tags for this target
     """
-    def __init__(self, imagename, targetname, steps, sourcebuilds, from_image, keepbuildtags=False):
+    def __init__(self, imagename, targetname, steps, sourcebuilds, from_image, keepbuildtags=False, aliases=None):
         self.imagename = imagename
         self.steps = steps
         self.sourcebuilds = sourcebuilds
         self.targetname = targetname
         self.from_image = from_image
         self.keepbuildtags = keepbuildtags
+        self.aliases = aliases
 
     def write_dockerfile(self, output_dir):
         """ Used only to write a Dockerfile that will NOT be built by docker-make
@@ -56,15 +60,12 @@ class BuildTarget(object):
                 lines.extend(step.dockerfile_lines)
             else:
                 lines.extend(step.dockerfile_lines[1:])
-        path = os.path.join(output_dir, 'Dockerfile.%s' % self.imagename)
-        with open(path, 'w') as outfile:
-            outfile.write('\n'.join(lines))
-        print('Wrote %s' % path)
+        path = os.path.join(output_dir, "Dockerfile.%s" % self.imagename)
+        with open(path, "w") as outfile:
+            outfile.write("\n".join(lines))
+        print("Wrote %s" % path)
 
-    def build(self, client,
-              nobuild=False,
-              usecache=True,
-              pull=False):
+    def build(self, client, nobuild=False, usecache=True, pull=False):
         """
         Drives the build of the final image - get the list of steps and execute them.
 
@@ -75,24 +76,26 @@ class BuildTarget(object):
             pull (bool): try to pull new versions of repository images?
         """
         if not nobuild:
-            self.update_source_images(client,
-                                      usecache=usecache,
-                                      pull=pull)
+            self.update_source_images(client, usecache=usecache, pull=pull)
 
         width = utils.get_console_width()
-        cprint('\n' + '='*width,
-               color='white', attrs=['bold'])
+        cprint("\n" + "=" * width, color="white", attrs=["bold"])
 
         line = 'STARTING BUILD for "%s" (image definition "%s" from %s)\n' % (
-            self.targetname, self.imagename, self.steps[-1].sourcefile)
+            self.targetname,
+            self.imagename,
+            self.steps[-1].sourcefile,
+        )
 
-        cprint(_centered(line, width), color='blue', attrs=['bold'])
+        cprint(_centered(line, width), color="blue", attrs=["bold"])
 
         for istep, step in enumerate(self.steps):
-            print(colored('* Step','blue'),
-                  colored('%d/%d' % (istep+1, len(self.steps)), 'blue', attrs=['bold']),
-                  colored('for image', color='blue'),
-                  colored(self.imagename, color='blue', attrs=['bold']))
+            print(
+                colored("* Step", "blue"),
+                colored("%d/%d" % (istep + 1, len(self.steps)), "blue", attrs=["bold"]),
+                colored("for image", color="blue"),
+                colored(self.imagename, color="blue", attrs=["bold"]),
+            )
 
             if not nobuild:
                 if step.bust_cache:
@@ -101,9 +104,11 @@ class BuildTarget(object):
                         step.bust_cache = False
 
                 step.build(client, usecache=usecache)
-                print(colored("* Created intermediate image", 'green'),
-                      colored(step.buildname, 'green', attrs=['bold']),
-                      end='\n\n')
+                print(
+                    colored("* Created intermediate image", "green"),
+                    colored(step.buildname, "green", attrs=["bold"]),
+                    end="\n\n",
+                )
 
                 if step.bust_cache:
                     _rebuilt.add(stackkey)
@@ -112,15 +117,17 @@ class BuildTarget(object):
 
         if not nobuild:
             self.finalizenames(client, finalimage)
-            line = 'FINISHED BUILDING "%s" (image definition "%s" from %s)'%(
-                self.targetname, self.imagename, self.steps[-1].sourcefile)
-            cprint(_centered(line, width),
-                   color='green', attrs=['bold'])
-            cprint('=' * width, color='white', attrs=['bold'], end='\n\n')
+            line = 'FINISHED BUILDING "%s" (image definition "%s" from %s)' % (
+                self.targetname,
+                self.imagename,
+                self.steps[-1].sourcefile,
+            )
+            cprint(_centered(line, width), color="green", attrs=["bold"])
+            cprint("=" * width, color="white", attrs=["bold"], end="\n\n")
 
     def _get_stack_key(self, istep):
         names = [self.from_image]
-        for i in range(istep+1):
+        for i in range(istep + 1):
             step = self.steps[i]
             if isinstance(step, FileCopyStep):
                 continue
@@ -131,25 +138,27 @@ class BuildTarget(object):
         for build in self.sourcebuilds:
             if build.targetname in _updated_staging_images:
                 continue
-            cprint('\nUpdating source image %s' % build.targetname,
-                   'blue')
-            build.build(client,
-                        usecache=usecache,
-                        pull=pull)
-            cprint('Finished with build image "%s"\n' % build.targetname,
-                   color='green')
+            cprint("\nUpdating source image %s" % build.targetname, "blue")
+            build.build(client, usecache=usecache, pull=pull)
+            cprint('Finished with build image "%s"\n' % build.targetname, color="green")
 
     def finalizenames(self, client, finalimage):
         """ Tag the built image with its final name and untag intermediate containers
         """
         client.api.tag(finalimage, *self.targetname.split(':'))
-        cprint('Tagged final image as "%s"' % self.targetname,
-               'green')
+        if self.aliases:
+            for alias in self.aliases:
+                client.api.tag(finalimage, *alias.split(':'))
+            cprint('Tagged final image as "%s"' % '", "'.join(self.aliases + [self.targetname]),
+                   'green')
+        else:
+            cprint('Tagged final image as "%s"' % self.targetname,
+                   'green')
         if not self.keepbuildtags:
-            print('Untagging intermediate containers:', end='')
+            print("Untagging intermediate containers:", end="")
             for step in self.steps:
                 client.api.remove_image(step.buildname, force=True)
-                print(step.buildname, end=',')
+                print(step.buildname, end=",")
             print()
 
 
@@ -158,4 +167,4 @@ def _centered(s, w):
     if leftover < 0:
         return s
     else:
-        return ' '*(leftover//2) + s
+        return " " * (leftover // 2) + s

@@ -30,7 +30,7 @@ from . import errors
 from . import utils
 
 RECOGNIZED_KEYS = set(('requires build_directory build copy_from FROM description _sourcefile'
-                       ' FROM_DOCKERFILE ignore ignorefile squash secret_files')
+                       ' FROM_DOCKERFILE ignore ignorefile squash secret_files build_args aliases')
                       .split())
 SPECIAL_FIELDS = set('_ALL_ _SOURCES_'.split())
 
@@ -38,18 +38,20 @@ SPECIAL_FIELDS = set('_ALL_ _SOURCES_'.split())
 class ImageDefs(object):
     """ Stores and processes the image definitions
     """
+
     def __init__(self, makefile_path):
         self._sources = set()
         self.makefile_path = makefile_path
-        print('Working directory: %s' % os.path.abspath(os.curdir))
-        print('Copy cache directory: %s' % staging.TMPDIR)
+        print("Working directory: %s" % os.path.abspath(os.curdir))
+        print("Copy cache directory: %s" % staging.TMPDIR)
         try:
             ymldefs, alltargets = self.parse_yaml(self.makefile_path)
         except errors.UserException:
             raise
         except Exception as exc:
-            raise errors.ParsingFailure('Failed to read file %s:\n' % self.makefile_path +
-                                        str(exc))
+            raise errors.ParsingFailure(
+                "Failed to read file %s:\n" % self.makefile_path + str(exc)
+            )
 
         self.ymldefs = ymldefs
         self.all_targets = alltargets
@@ -58,24 +60,26 @@ class ImageDefs(object):
     def parse_yaml(self, filename):
         # locate and verify the DockerMake.yml file
         fname = os.path.expanduser(filename)
-        print('READING %s' % os.path.expanduser(fname))
+        print("READING %s" % os.path.expanduser(fname))
         if fname in self._sources:
-            raise errors.CircularSourcesError('Circular _SOURCES_ in %s' % self.makefile_path)
+            raise errors.CircularSourcesError(
+                "Circular _SOURCES_ in %s" % self.makefile_path
+            )
         self._sources.add(fname)
-        with open(fname, 'r') as yaml_file:
+        with open(fname, "r") as yaml_file:
             yamldefs = yaml.load(yaml_file, Loader=yaml.FullLoader)
         self._check_yaml_and_paths(filename, yamldefs)
 
         # Recursively read all steps in included files from the _SOURCES_ field and
         # store them in sourcedefs
         sourcedefs = {}
-        for s in yamldefs.pop('_SOURCES_', []):
+        for s in yamldefs.pop("_SOURCES_", []):
             src, _ = self.parse_yaml(s)  # ignore source's _ALL_ targets
             sourcedefs.update(src)
 
         # Now add the steps defined in this file
         sourcedefs.update(yamldefs)
-        alltargets = sourcedefs.pop('_ALL_', [])
+        alltargets = sourcedefs.pop("_ALL_", [])
 
         return sourcedefs, alltargets
 
@@ -84,62 +88,83 @@ class ImageDefs(object):
         """ Checks YAML for errors and resolves all paths
         """
         relpath = os.path.relpath(ymlfilepath)
-        if '/' not in relpath:
-            relpath = './%s' % relpath
+        if "/" not in relpath:
+            relpath = "./%s" % relpath
         pathroot = os.path.abspath(os.path.dirname(ymlfilepath))
 
-        for imagename, defn in iteritems(yamldefs):
-            if imagename == '_SOURCES_':
-                yamldefs['_SOURCES_'] = [os.path.relpath(_get_abspath(pathroot, p))
-                                         for p in yamldefs['_SOURCES_']]
+        for imagename, defn in yamldefs.items():
+            if imagename == "_SOURCES_":
+                yamldefs["_SOURCES_"] = [
+                    os.path.relpath(_get_abspath(pathroot, p))
+                    for p in yamldefs["_SOURCES_"]
+                ]
                 continue
             elif imagename in SPECIAL_FIELDS:
                 continue
 
-            for key in ('build_directory', 'FROM_DOCKERFILE', 'ignorefile'):
+            for key in ("build_directory", "FROM_DOCKERFILE", "ignorefile"):
                 if key in defn:
                     defn[key] = _get_abspath(pathroot, defn[key])
 
-            if 'copy_from' in defn:
-                if not isinstance(defn['copy_from'], dict):
-                    raise errors.ParsingFailure((
-                            'Syntax error in file "%s": \n' +
-                            'The "copy_from" field in image definition "%s" is not \n' 
-                            'a key:value list.') % (ymlfilepath, imagename))
-                for otherimg, value in defn.get('copy_from', {}).items():
+            if "copy_from" in defn:
+                if not isinstance(defn["copy_from"], dict):
+                    raise errors.ParsingFailure(
+                        (
+                            'Syntax error in file "%s": \n'
+                            + 'The "copy_from" field in image definition "%s" is not \n'
+                            "a key:value list."
+                        )
+                        % (ymlfilepath, imagename)
+                    )
+                for otherimg, value in defn.get("copy_from", {}).items():
                     if not isinstance(value, dict):
-                        raise errors.ParsingFailure((
-                            'Syntax error in field:\n'
-                            '     %s . copy_from . %s\nin file "%s". \n'
-                            'All entries must be of the form "sourcepath: destpath"')%
-                                 (imagename, otherimg, ymlfilepath))
+                        raise errors.ParsingFailure(
+                            (
+                                "Syntax error in field:\n"
+                                '     %s . copy_from . %s\nin file "%s". \n'
+                                'All entries must be of the form "sourcepath: destpath"'
+                            )
+                            % (imagename, otherimg, ymlfilepath)
+                        )
 
             # save the file path for logging
-            defn['_sourcefile'] = relpath
+            defn["_sourcefile"] = relpath
 
-            if 'ignore' in defn and 'ignorefile' in defn:
+            if "ignore" in defn and "ignorefile" in defn:
                 raise errors.MultipleIgnoreError(
-                        'Image "%s" has both "ignore" AND "ignorefile" fields.' % imagename +
-                        ' At most ONE of these should be defined')
+                    'Image "%s" has both "ignore" AND "ignorefile" fields.' % imagename
+                    + " At most ONE of these should be defined"
+                )
 
-            if 'secret_files' in defn and not defn.get('squash', True):
+            if "secret_files" in defn and not defn.get("squash", True):
                 raise errors.ParsingFailure(
-                        "Step '%s' defines secret_files, so 'squash' cannot be set to 'false'"
-                        % imagename)
+                    "Step '%s' defines secret_files, so 'squash' cannot be set to 'false'"
+                    % imagename
+                )
 
-            if defn.get('secret_files', None) and defn.get('copy_from', False):
+            if defn.get("secret_files", None) and defn.get("copy_from", False):
                 raise errors.ParsingFailure(
-                        '`secret_files` currently is not implmemented to handle `copy_from`'
-                        ' (step %s)' % imagename)
+                    "`secret_files` currently is not implmemented to handle `copy_from`"
+                    " (step %s)" % imagename
+                )
 
             for key in defn:
                 if key not in RECOGNIZED_KEYS:
                     raise errors.UnrecognizedKeyError(
-                            'Field "%s" in image "%s" in file "%s" not recognized' %
-                            (key, imagename, relpath))
+                        'Field "%s" in image "%s" in file "%s" not recognized'
+                        % (key, imagename, relpath)
+                    )
 
-    def generate_build(self, image, targetname, rebuilds=None, cache_repo='', cache_tag='',
-                       buildargs=None, **kwargs):
+    def generate_build(
+        self,
+        image,
+        targetname,
+        rebuilds=None,
+        cache_repo="",
+        cache_tag="",
+        buildargs=None,
+        **kwargs,
+    ):
         """
         Separate the build into a series of one or more intermediate steps.
         Each specified build directory gets its own step
@@ -153,6 +178,9 @@ class ImageDefs(object):
             buildargs (dict): build-time dockerfile arugments
             **kwargs (dict): extra keyword arguments for the BuildTarget object
         """
+        build_uuid = str(uuid.uuid4())
+        # Fill out build args
+        buildargs = self.get_target_args(image, buildargs)
         from_image = self.get_external_base_image(image, buildargs=buildargs)
         if cache_repo or cache_tag:
             cache_from = utils.generate_name(image, cache_repo, cache_tag)
@@ -176,42 +204,53 @@ class ImageDefs(object):
 
         for base_name in self.sort_dependencies(image):
             istep += 1
-            buildname = 'dmkbuild_%s_%d' % (image, istep)
-            secret_files = self.ymldefs[base_name].get('secret_files', None)
-            squash = self.ymldefs[base_name].get('squash', bool(secret_files))
+            buildname = self._generate_stepname(istep, image, build_uuid)
+            secret_files = self.ymldefs[base_name].get("secret_files", None)
+            squash = self.ymldefs[base_name].get("squash", bool(secret_files))
             build_steps.append(
-                    dockermake.step.BuildStep(
+                dockermake.step.BuildStep(
+                        base_name,
+                        base_image,
+                        self.ymldefs[base_name],
+                        buildname,
+                        bust_cache=base_name in rebuilds,
+                        build_first=build_first, cache_from=cache_from,
+                        buildargs=self.get_target_args(base_name, buildargs),
+                        squash=squash,
+                        secret_files=secret_files)
+            )
+
+            base_image = buildname
+            build_first = None
+
+            for sourceimage, files in (
+                self.ymldefs[base_name].get("copy_from", {}).items()
+            ):
+                sourceimages.add(sourceimage)
+                for sourcepath, destpath in files.items():
+                    istep += 1
+                    buildname = self._generate_stepname(istep, image, build_uuid)
+                    build_steps.append(
+                        dockermake.step.FileCopyStep(
+                            sourceimage,
+                            sourcepath,
+                            destpath,
                             base_name,
                             base_image,
                             self.ymldefs[base_name],
                             buildname,
                             bust_cache=base_name in rebuilds,
-                            build_first=build_first, cache_from=cache_from,
-                            buildargs=buildargs,
-                            squash=squash,
-                            secret_files=secret_files))
-
-            base_image = buildname
-            build_first = None
-
-            for sourceimage, files in iteritems(self.ymldefs[base_name].get('copy_from', {})):
-                sourceimages.add(sourceimage)
-                for sourcepath, destpath in iteritems(files):
-                    istep += 1
-                    buildname = 'dmkbuild_%s_%d' % (image, istep)
-                    build_steps.append(
-                            dockermake.step.FileCopyStep(
-                                    sourceimage, sourcepath, destpath,
-                                    base_name, base_image, self.ymldefs[base_name],
-                                    buildname, bust_cache=base_name in rebuilds,
-                                    build_first=build_first, cache_from=cache_from))
+                            build_first=build_first,
+                            cache_from=cache_from,
+                        )
+                    )
                     base_image = buildname
 
         sourcebuilds = [self.generate_build(img,
                                             img,
                                             cache_repo=cache_repo,
                                             cache_tag=cache_tag,
-                                            buildargs=buildargs,
+                                            buildargs=self.get_target_args(img, buildargs),
                                             **kwargs)
                         for img in sourceimages]
 
@@ -220,7 +259,11 @@ class ImageDefs(object):
                                   steps=build_steps,
                                   sourcebuilds=sourcebuilds,
                                   from_image=from_image,
+                                  aliases=self.get_aliases(image, targetname),
                                   **kwargs)
+
+    def _generate_stepname(self, istep, image, build_uuid):
+        return f"{istep}.{image}.dmk:{build_uuid}"
 
     def sort_dependencies(self, image, dependencies=None):
         """
@@ -238,18 +281,50 @@ class ImageDefs(object):
             List[str]: list of dependencies a topologically-sorted build order
         """
         if dependencies is None:
-            dependencies = OrderedDict()  # using this as an ordered set - not storing any values
+            dependencies = (
+                OrderedDict()
+            )  # using this as an ordered set - not storing any values
 
         if image in dependencies:
             return
 
-        requires = self.ymldefs[image].get('requires', [])
+        requires = self.ymldefs[image].get("requires", [])
 
         for dep in requires:
             self.sort_dependencies(dep, dependencies)
 
         dependencies[image] = None
         return dependencies.keys()
+
+    def get_target_args(self, image, buildargs=None):
+        """ Collects any args specified in the target definition and prepares them
+            for passing along to the required build steps
+        """
+        # Check for any
+        target_args = self.ymldefs[image].get('build_args', {})
+
+        # Force strings
+        for key, value in target_args.items():
+            target_args[key] = str(value)
+
+        # Make sure we prioritize buildargs from CLI
+        if buildargs:
+            target_args.update(buildargs)
+
+        return target_args
+
+    def get_aliases(self, image, targetname):
+        """ Checks for and sets an configured aliases for the target
+        """
+        # Check for any
+        aliases = self.ymldefs[image].get('aliases', None)
+        if not aliases:
+            return None
+
+        # Make aliases fully formed
+        target_aliases = [targetname.replace(image, a) for a in aliases]
+
+        return target_aliases
 
     def get_external_base_image(self, image, stack=None, buildargs=None):
         """ Makes sure that this image has exactly one unique external base image
@@ -261,11 +336,13 @@ class ImageDefs(object):
 
         if image in stack:
             stack.append(image)
-            raise errors.CircularDependencyError('Circular dependency found:\n' + '->'.join(stack))
+            raise errors.CircularDependencyError(
+                "Circular dependency found:\n" + "->".join(stack)
+            )
         stack.append(image)
 
         # Deal with FROM and FROM_DOCKERFILE fields
-        if 'FROM' in mydef and 'FROM_DOCKERFILE' in mydef:
+        if "FROM" in mydef and "FROM_DOCKERFILE" in mydef:
             raise errors.MultipleBaseError(
                     'ERROR: Image "%s" has both a "FROM" and a "FROM_DOCKERFILE" field.' % image +
                     '       It should have at most ONE of these fields.')
@@ -283,9 +360,11 @@ class ImageDefs(object):
         else:
             externalbase = None
 
-        requires = mydef.get('requires', [])
+        requires = mydef.get("requires", [])
         if not isinstance(requires, list):
-            raise errors.InvalidRequiresList('Requirements for image "%s" are not a list' % image)
+            raise errors.InvalidRequiresList(
+                'Requirements for image "%s" are not a list' % image
+            )
 
         for base in requires:
             try:
@@ -299,9 +378,11 @@ class ImageDefs(object):
                 continue
             elif externalbase != otherexternal:
                 raise errors.ConflictingBaseError(
-                        'Multiple external dependencies: definition "%s" depends on:\n' % image +
-                        '  %s (FROM: %s), and\n' % (image, externalbase) +
-                        '  %s (FROM: %s).' % (base, otherexternal))
+                    'Multiple external dependencies: definition "%s" depends on:\n'
+                    % image
+                    + "  %s (FROM: %s), and\n" % (image, externalbase)
+                    + "  %s (FROM: %s)." % (base, otherexternal)
+                )
 
         assert stack.pop() == image
         return externalbase
@@ -331,5 +412,3 @@ def _get_abspath(pathroot, relpath):
         buildpath = os.path.join(os.path.abspath(path), buildpath)
 
     return buildpath
-
-

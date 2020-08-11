@@ -1,5 +1,5 @@
 # Docker-make
-[ ![Codeship Status for avirshup/DockerMake](https://app.codeship.com/projects/2e8e5e50-f965-0135-5b52-6ab6449f402e/status?branch=master)](https://app.codeship.com/projects/278529)
+[![Codeship Status for avirshup/DockerMake](https://app.codeship.com/projects/d4a701b0-2114-0138-0bfb-1a499be1ccac/status?branch=master)](https://app.codeship.com/projects/382713)
 [ ![PyPI version](https://badge.fury.io/py/DockerMake.svg)](https://badge.fury.io/py/DockerMake)
 
 ## Table of Contents
@@ -115,6 +115,7 @@ Image definitions can include any of the following fields:
 * [**`copy_from`**](#copy_from)
 * [**`squash`**](#squash)
 * [**`secret_files`**](#secret_files)
+* [**`build_args`**](#build_args)
 
 #### **`FROM`/`FROM_DOCKERFILE`**
 The docker image to use as a base for this image (and those that require it). This can be either the name of an image (using `FROM`) or the path to a local Dockerfile (using `FROM_DOCKERFILE`).
@@ -285,6 +286,45 @@ my-secret-steps:
     secret_files:
         - /opt/credentials
 ```
+
+
+#### **`build_args`**
+A dictionary of key-value pairs to enable for subsequent build stages for this target. Available as both arguments for
+Jinja-templated steps, as well as Dockerfile ARGs. Priority is given to build arguments passed by command, then to
+`build_args` on the target definition, and least priority to `build_args` on the build/copy definition themselves.
+
+*Example:*
+```yaml
+data-image:
+    FROM: scratch
+    requires: build-image
+    build_args:
+      KEY: value
+      ANOTHER: argument
+
+build-image:
+    build_args:
+      SOME: value
+      KEY: overwritten_by_data-image_KEY
+    build: |
+    [...]
+```
+
+
+#### **`aliases`**
+A list of image aliases to push. Follows the same format applied to the called target, but pushed with each alias to
+the same repo.
+
+*Example:*
+```yaml
+data-image:
+    FROM: some-image
+    aliases: 
+      - data-image-alias
+      - data-image-alias2
+    requires: build-image
+```
+
 
 ### Special fields
 
