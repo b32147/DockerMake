@@ -312,7 +312,7 @@ class ImageDefs(object):
         # Force strings
         _target_args = {}
         for key, value in target_args.items():
-            template = jinja2.Template(value)
+            template = jinja2.Template(str(value))
             _target_args[key] = str(template.render(buildargs if buildargs else {}))
 
         # Make sure we prioritize buildargs from CLI
