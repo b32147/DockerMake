@@ -17,6 +17,7 @@ from __future__ import print_function
 from builtins import object
 
 import os
+import io
 from collections import OrderedDict
 import yaml
 import uuid
@@ -39,13 +40,13 @@ class ImageDefs(object):
     """ Stores and processes the image definitions
     """
 
-    def __init__(self, makefile_path):
+    def __init__(self, makefile_path, build_args=None):
         self._sources = set()
         self.makefile_path = makefile_path
         print("Working directory: %s" % os.path.abspath(os.curdir))
         print("Copy cache directory: %s" % staging.TMPDIR)
         try:
-            ymldefs, alltargets = self.parse_yaml(self.makefile_path)
+            ymldefs, alltargets = self.parse_yaml(self.makefile_path, build_args=build_args)
         except errors.UserException:
             raise
         except Exception as exc:
@@ -57,7 +58,7 @@ class ImageDefs(object):
         self.all_targets = alltargets
         self._external_dockerfiles = {}
 
-    def parse_yaml(self, filename):
+    def parse_yaml(self, filename, build_args=None):
         # locate and verify the DockerMake.yml file
         fname = os.path.expanduser(filename)
         print("READING %s" % os.path.expanduser(fname))
@@ -67,7 +68,12 @@ class ImageDefs(object):
             )
         self._sources.add(fname)
         with open(fname, "r") as yaml_file:
-            yamldefs = yaml.load(yaml_file, Loader=yaml.FullLoader)
+            if build_args:
+                # Run yaml through Jinja first
+                template = jinja2.Template(yaml_file.read())
+                yamldefs = yaml.load(io.StringIO(template.render(build_args)), Loader=yaml.FullLoader)
+            else:
+                yamldefs = yaml.load(yaml_file, Loader=yaml.FullLoader)
         self._check_yaml_and_paths(filename, yamldefs)
 
         # Recursively read all steps in included files from the _SOURCES_ field and
@@ -304,14 +310,16 @@ class ImageDefs(object):
         target_args = self.ymldefs[image].get('build_args', {})
 
         # Force strings
+        _target_args = {}
         for key, value in target_args.items():
-            target_args[key] = str(value)
+            template = jinja2.Template(value)
+            _target_args[key] = str(template.render(buildargs if buildargs else {}))
 
         # Make sure we prioritize buildargs from CLI
         if buildargs:
-            target_args.update(buildargs)
+            _target_args.update(buildargs)
 
-        return target_args
+        return _target_args
 
     def get_aliases(self, image, targetname):
         """ Checks for and sets an configured aliases for the target
